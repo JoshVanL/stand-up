@@ -3,6 +3,8 @@
 BIN=$(pwd)/stand-up
 TOKEN=$1
 
+EXEC="$BIN -t $TOKEN"
+
 SERVICE="[Unit]
 Description=Stand-up automation service.
 Wants=network-online.target
@@ -10,7 +12,7 @@ After=network.target network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=$BIN -t $TOKEN
+ExecStart=$EXEC
 
 [Install]
 WantedBy=multi-user.target
