@@ -17,11 +17,16 @@ const (
 	FlagStandUpDir = "stand-ups"
 	FlagToken      = "token"
 	FlagChannel    = "channel"
+	FlagName       = "name"
 )
 
 type StandUp struct {
-	client  *slack.Client
+	client *slack.Client
+	rtm    *slack.RTM
+	id     string
+
 	channel string
+	name    string
 	token   string
 	dir     string
 }
@@ -38,66 +43,105 @@ var RootCmd = &cobra.Command{
 			os.Exit(0)
 		}
 
-		channel, err := cmd.PersistentFlags().GetString(FlagChannel)
-		if err != nil {
-			Must(fmt.Errorf("failed to get stand-up channel flag: %v", err))
-		}
-
-		path, err := cmd.PersistentFlags().GetString(FlagStandUpDir)
-		if err != nil {
-			Must(fmt.Errorf("failed to get stand-up directory flag: %v", err))
-		}
-
-		path, err = homedir.Expand(path)
-		if err != nil {
-			Must(fmt.Errorf("failed to expand stand-up directory: %v", err))
-		}
-
 		token, err := cmd.PersistentFlags().GetString(FlagToken)
 		if err != nil {
-			Must(fmt.Errorf("failed to get slack token flag: %v", err))
+			fmt.Printf("failed to get slack token flag: %v", err)
+			os.Exit(1)
+		}
+		if token == "" {
+			fmt.Printf("Slack token not set, exiting.\n")
+			os.Exit(1)
 		}
 
-		if token == "" {
-			fmt.Printf("Slack token is not set, exiting.\n")
+		name, err := cmd.PersistentFlags().GetString(FlagName)
+		if err != nil {
+			fmt.Printf("failed to get client name flag: %v", err)
+			os.Exit(1)
+		}
+
+		channel, err := cmd.PersistentFlags().GetString(FlagChannel)
+		if err != nil {
+			fmt.Printf("failed to get stand-up channel flag: %v", err)
 			os.Exit(1)
 		}
 
 		s := &StandUp{
 			client:  slack.New(token),
 			token:   token,
-			dir:     path,
+			name:    name,
 			channel: channel,
 		}
 
+		rtm := s.client.NewRTM()
+		users, err := rtm.GetUsers()
+		for _, u := range users {
+			if u.Name == s.name {
+				s.id = u.ID
+				break
+			}
+		}
+		if s.id == "" {
+			s.Must(fmt.Errorf("failed to find user: %s", s.name))
+		}
+
+		s.rtm = rtm
+
+		path, err := cmd.PersistentFlags().GetString(FlagStandUpDir)
+		if err != nil {
+			s.Must(fmt.Errorf("failed to get stand-up directory flag: %v", err))
+		}
+		path, err = homedir.Expand(path)
+		if err != nil {
+			s.Must(fmt.Errorf("failed to expand stand-up directory: %v", err))
+		}
+		s.dir = path
+
 		standup, err := s.CreateStandUp()
-		Must(err)
+		s.Must(err)
 
-		Must(s.SendStandUpMessage(standup))
-
+		s.Must(s.SendStandUpMessage(standup))
 	},
 }
 
 func main() {
-	Must(RootCmd.Execute())
+	if err := RootCmd.Execute(); err != nil {
+		fmt.Printf("%v\n", err)
+		os.Exit(1)
+	}
 }
 
 func init() {
 	RootCmd.PersistentFlags().StringP(FlagStandUpDir, "f", "~/Jetstack/standups", "Set directory of standups")
 	RootCmd.PersistentFlags().StringP(FlagToken, "t", "", "Set you client slack token")
 	RootCmd.PersistentFlags().StringP(FlagChannel, "c", "stand-ups", "Set channel to post stand-up")
+	RootCmd.PersistentFlags().StringP(FlagName, "n", "josh.van.leeuwen", "Set name of slack client")
 }
 
-func Must(err error) {
+func (s *StandUp) Must(err error) {
 	if err != nil {
 		fmt.Printf("%v\n", err)
+
+		params := slack.NewPostMessageParameters()
+		params.AsUser = false
+		_, _, err := s.rtm.PostMessage(s.id, err.Error(), params)
+		if err != nil {
+			fmt.Printf("an error occured sending error to slack client: %v\n", err)
+		}
+
 		os.Exit(1)
 	}
 }
 
 func (s *StandUp) SendStandUpMessage(standup string) error {
-	_, _, err := s.client.PostMessage(s.channel, standup, slack.NewPostMessageParameters())
-	return err
+	params := slack.NewPostMessageParameters()
+	params.AsUser = true
+	respChanel, respTimestamp, err := s.client.PostMessage(s.channel, standup, params)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s\n%s\n", respChanel, respTimestamp)
+	return nil
 }
 
 func (s *StandUp) CreateStandUp() (string, error) {
@@ -126,7 +170,7 @@ func (s *StandUp) CreateStandUp() (string, error) {
 }
 
 func (s *StandUp) generateStandUp(s1, s2 []byte, today, prevDay string) string {
-	return fmt.Sprintf("```\n%s:\n%s\n\n%s:\n```", prevDay, s1, today, s2)
+	return fmt.Sprintf("```\n%s:\n%s\n%s:%s\n```", prevDay, s1, today, s2)
 }
 
 func (s *StandUp) createPath(t time.Time) string {
