@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -96,7 +97,7 @@ var RootCmd = &cobra.Command{
 		}
 		s.dir = path
 
-		standup, err := s.CreateStandUp()
+		_, err = s.CreateStandUp()
 		s.Must(err)
 
 		s.Must(s.SendStandUpMessage(standup))
@@ -160,6 +161,11 @@ func (s *StandUp) CreateStandUp() (string, error) {
 		return "", fmt.Errorf("failed to read last stand-up: %v", err)
 	}
 
+	_, err = os.Stat(todayPath)
+	if err != nil && os.IsNotExist(err) {
+		s.Must(s.VimStandUp(todayPath))
+	}
+
 	s2, err := ioutil.ReadFile(todayPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read today's stand-up: %v", err)
@@ -168,6 +174,11 @@ func (s *StandUp) CreateStandUp() (string, error) {
 	standup := s.generateStandUp(s1, s2, now.Weekday().String(), prevDay.Weekday().String())
 
 	return standup, nil
+}
+
+func (s *StandUp) VimStandUp(path string) error {
+	cmd := exec.Command("termite", fmt.Sprintf("--exec=vim %s", path))
+	return cmd.Run()
 }
 
 func (s *StandUp) generateStandUp(s1, s2 []byte, today, prevDay string) string {
