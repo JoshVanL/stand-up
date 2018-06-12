@@ -123,7 +123,8 @@ func (s *StandUp) Must(err error) {
 
 		params := slack.NewPostMessageParameters()
 		params.AsUser = false
-		_, _, err := s.rtm.PostMessage(s.id, err.Error(), params)
+		errStr := fmt.Sprintf("An error occured when trying to post your stand up!\n%v\n", err)
+		_, _, err := s.rtm.PostMessage(s.id, errStr, params)
 		if err != nil {
 			fmt.Printf("an error occured sending error to slack client: %v\n", err)
 		}

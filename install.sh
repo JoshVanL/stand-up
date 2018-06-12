@@ -9,10 +9,14 @@ SERVICE="[Unit]
 Description=Stand-up automation service.
 Wants=network-online.target
 After=network.target network-online.target
+StartLimitInterval=2000
+StartLimitBurst=5
 
 [Service]
-Type=oneshot
+Type=simple
 ExecStart=$EXEC
+Restart=always
+RestartSec=300
 
 [Install]
 WantedBy=multi-user.target
@@ -33,10 +37,12 @@ make build
 sudo -s <<EOF
 echo "$SERVICE" > /etc/systemd/system/stand-up.service
 echo "$TIMER" > /etc/systemd/system/stand-up.timer
+systemctl enable stand-up.timer
 systemctl start stand-up.timer
 EOF
 
 echo "echo \"\$SERVICE\" > /etc/systemd/system/stand-up.service"
 echo "echo \"\$TIMER\" > /etc/systemd/system/stand-up.timer"
+echo "systemctl enable stand-up.timer"
 echo "systemctl start stand-up.timer"
 echo Cheers!
