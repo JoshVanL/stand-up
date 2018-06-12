@@ -1,5 +1,4 @@
-Stand-up automaton
-##################
+# Stand-up automaton
 
 Hate London beer prices? Never miss a start-up again!
 
