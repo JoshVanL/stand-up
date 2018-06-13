@@ -15,12 +15,11 @@ StartLimitBurst=5
 [Service]
 Type=simple
 ExecStart=$EXEC
-Restart=always
+Restart=on-failure
 RestartSec=300
 
 [Install]
-WantedBy=multi-user.target
-"
+WantedBy=multi-user.target"
 
 TIMER="[Unit]
 Description=Stand-up automation timer.
