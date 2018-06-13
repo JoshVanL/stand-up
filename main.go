@@ -97,7 +97,7 @@ var RootCmd = &cobra.Command{
 		}
 		s.dir = path
 
-		_, err = s.CreateStandUp()
+		standup, err := s.CreateStandUp()
 		s.Must(err)
 
 		s.Must(s.SendStandUpMessage(standup))
@@ -112,7 +112,7 @@ func main() {
 }
 
 func init() {
-	RootCmd.PersistentFlags().StringP(FlagStandUpDir, "f", "~/Jetstack/standups", "Set directory of standups")
+	RootCmd.PersistentFlags().StringP(FlagStandUpDir, "f", "/home/josh/Jetstack/standups", "Set directory of standups")
 	RootCmd.PersistentFlags().StringP(FlagToken, "t", "", "Set you client slack token")
 	RootCmd.PersistentFlags().StringP(FlagChannel, "c", "stand-ups", "Set channel to post stand-up")
 	RootCmd.PersistentFlags().StringP(FlagName, "n", "josh.van.leeuwen", "Set name of slack client")
@@ -182,7 +182,7 @@ func (s *StandUp) VimStandUp(path string) error {
 }
 
 func (s *StandUp) generateStandUp(s1, s2 []byte, today, prevDay string) string {
-	return fmt.Sprintf("```\n%s:\n%s\n%s:%s\n```", prevDay, s1, today, s2)
+	return fmt.Sprintf("```\n%s:\n%s\n%s:\n%s\n```", prevDay, s1, today, s2)
 }
 
 func (s *StandUp) createPath(t time.Time) string {
