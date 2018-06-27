@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	//"os/exec"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -37,11 +37,7 @@ var RootCmd = &cobra.Command{
 	Short: "Post your stand-up to slack.",
 	Run: func(cmd *cobra.Command, args []string) {
 
-		day := time.Now().Weekday()
-
-		if day == time.Saturday || day == time.Sunday {
-			Error("You're not working today!\n")
-		}
+		s := NewStandup(cmd)
 
 		token, err := cmd.PersistentFlags().GetString(FlagToken)
 		if err != nil {
@@ -51,32 +47,20 @@ var RootCmd = &cobra.Command{
 			Error("Slack token not set, exiting.\n")
 		}
 
+		s.token = token
+		s.client = slack.New(token)
+
 		name, err := cmd.PersistentFlags().GetString(FlagName)
 		if err != nil {
 			Errorf("failed to get client name flag: %v", err)
 		}
+		s.name = name
 
 		channel, err := cmd.PersistentFlags().GetString(FlagChannel)
 		if err != nil {
 			Errorf("failed to get stand-up channel flag: %v", err)
 		}
-
-		s := &StandUp{
-			client:  slack.New(token),
-			token:   token,
-			name:    name,
-			channel: channel,
-		}
-
-		path, err := cmd.PersistentFlags().GetString(FlagStandUpDir)
-		if err != nil {
-			s.Must(fmt.Errorf("failed to get stand-up directory flag: %v", err))
-		}
-		path, err = homedir.Expand(path)
-		if err != nil {
-			s.Must(fmt.Errorf("failed to expand stand-up directory: %v", err))
-		}
-		s.dir = path
+		s.channel = channel
 
 		standup, err := s.CreateStandUp()
 		s.Must(err)
@@ -98,10 +82,52 @@ var RootCmd = &cobra.Command{
 	},
 }
 
+func NewStandup(cmd *cobra.Command) *StandUp {
+	day := time.Now().Weekday()
+
+	if day == time.Saturday || day == time.Sunday {
+		Error("You're not working today!\n")
+	}
+
+	s := new(StandUp)
+
+	path, err := cmd.PersistentFlags().GetString(FlagStandUpDir)
+	if err != nil {
+		s.Must(fmt.Errorf("failed to get stand-up directory flag: %v", err))
+	}
+	path, err = homedir.Expand(path)
+	if err != nil {
+		s.Must(fmt.Errorf("failed to expand stand-up directory: %v", err))
+	}
+	s.dir = path
+
+	return s
+}
+
 func main() {
 	if err := RootCmd.Execute(); err != nil {
 		Errorf("%v\n", err)
 	}
+}
+
+var todayCmd = &cobra.Command{
+	Use:     "today",
+	Aliases: []string{"tod", "t", "to"},
+	Short:   "Open vim for today's stand-up",
+	Run: func(cmd *cobra.Command, args []string) {
+		s := NewStandup(RootCmd)
+		s.Must(s.vimStandup(s.createPath(time.Now())))
+	},
+}
+
+var yesterdayCmd = &cobra.Command{
+	Use:     "yesterday",
+	Aliases: []string{"yes", "y"},
+	Short:   "Open vim for yesterday's stand-up",
+	Run: func(cmd *cobra.Command, args []string) {
+		s := NewStandup(RootCmd)
+		s.Must(s.vimStandup(s.createPath(s.prevDay())))
+	},
 }
 
 func init() {
@@ -109,6 +135,8 @@ func init() {
 	RootCmd.PersistentFlags().StringP(FlagToken, "t", "", "Set you client slack token")
 	RootCmd.PersistentFlags().StringP(FlagChannel, "c", "stand-ups", "Set channel to post stand-up")
 	RootCmd.PersistentFlags().StringP(FlagName, "n", "josh.van.leeuwen", "Set name of slack client")
+	RootCmd.AddCommand(todayCmd)
+	RootCmd.AddCommand(yesterdayCmd)
 }
 
 func (s *StandUp) Must(err error) {
@@ -151,25 +179,14 @@ func (s *StandUp) SendStandUpMessage(standup string) error {
 
 func (s *StandUp) CreateStandUp() (string, error) {
 	now := time.Now()
-	prevDay := now.Add(-time.Hour * 24)
-	for prevDay.Weekday() == time.Saturday || prevDay.Weekday() == time.Sunday {
-		prevDay = prevDay.Add(-time.Hour * 24)
-	}
+	prevDay := s.prevDay()
 
 	todayPath := s.createPath(now)
 	prevPath := s.createPath(prevDay)
 
-	if _, err := os.Stat(prevPath); err != nil && os.IsNotExist(err) {
-		s.Must(s.VimStandUp(prevPath, "Enter previous stand-up"))
-	}
-
 	s1, err := ioutil.ReadFile(prevPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read last stand-up: %v", err)
-	}
-
-	if _, err = os.Stat(todayPath); err != nil && os.IsNotExist(err) {
-		s.Must(s.VimStandUp(todayPath, "Enter todays stand-up"))
 	}
 
 	s2, err := ioutil.ReadFile(todayPath)
@@ -182,15 +199,13 @@ func (s *StandUp) CreateStandUp() (string, error) {
 	return standup, nil
 }
 
-func (s *StandUp) VimStandUp(path, message string) error {
-	//err := ioutil.WriteFile(path, []byte(message), 0644)
-	//if err != nil {
-	//	return fmt.Errorf("failed to write to next stand up file: %v", err)
-	//}
+func (s *StandUp) prevDay() time.Time {
+	prevDay := time.Now().Add(-time.Hour * 24)
+	for prevDay.Weekday() == time.Saturday || prevDay.Weekday() == time.Sunday {
+		prevDay = prevDay.Add(-time.Hour * 24)
+	}
 
-	//cmd := exec.Command("termite", fmt.Sprintf("--exec=vim %s", path))
-	//return cmd.Run()
-	return nil
+	return prevDay
 }
 
 func (s *StandUp) generateStandUp(s1, s2 []byte, today, prevDay string) string {
@@ -212,4 +227,16 @@ func (s *StandUp) createPath(t time.Time) string {
 	path = filepath.Join(s.dir, path)
 
 	return path
+}
+
+func (s *StandUp) vimStandup(path string) error {
+	cmd := exec.Command("vim", path)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create new standup: %v", err)
+	}
+
+	return nil
 }
