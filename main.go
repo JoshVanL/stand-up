@@ -230,7 +230,7 @@ func (s *StandUp) createPath(t time.Time) string {
 }
 
 func (s *StandUp) vimStandup(path string) error {
-	cmd := exec.Command("vim", path)
+	cmd := exec.Command("vim", path, "-c", ":setlocal spell")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
