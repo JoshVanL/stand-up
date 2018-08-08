@@ -264,7 +264,7 @@ func (s *StandUp) vimStandup(nowPath, yestPath string) error {
 		}
 	}
 
-	err = ioutil.WriteFile(nowPath, []byte(fmt.Sprintf("%s\n%s", c, string(b))), os.FileMode(0644))
+	err = ioutil.WriteFile(nowPath, []byte(fmt.Sprintf("%s\n\n%s", c, string(b))), os.FileMode(0644))
 	if err != nil {
 		return err
 	}
@@ -288,9 +288,16 @@ func (s *StandUp) vimStandup(nowPath, yestPath string) error {
 	c = regex.ReplaceAllString(string(b), "\n")
 
 	var out string
+	first := true
 	for _, str := range strings.Split(c, "\n") {
 		if !strings.HasPrefix(str, "#") {
-			out = fmt.Sprintf("%s%s", out, str)
+			if first {
+				out = str
+				first = false
+				continue
+			}
+
+			out = fmt.Sprintf("%s\n%s", out, str)
 		}
 	}
 
