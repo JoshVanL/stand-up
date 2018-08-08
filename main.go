@@ -274,7 +274,7 @@ func (s *StandUp) vimStandup(nowPath, yestPath string) error {
 		return err
 	}
 
-	err = ioutil.WriteFile(nowPath, []byte(fmt.Sprintf("%s\n\n%s", c, b)), os.FileMode(0644))
+	err = ioutil.WriteFile(nowPath, []byte(fmt.Sprintf("%s\n%s", c, b)), os.FileMode(0644))
 	if err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func (s *StandUp) vimStandup(nowPath, yestPath string) error {
 	var out string
 	first := true
 	for _, str := range strings.Split(c, "\n") {
-		if !strings.HasPrefix(str, "#") {
+		if !strings.HasPrefix(str, "#") && len(str) > 0 && str[0] != '\n' {
 			if first {
 				out = str
 				first = false
