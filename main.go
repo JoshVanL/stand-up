@@ -136,6 +136,22 @@ var yesterdayCmd = &cobra.Command{
 	},
 }
 
+var showCmd = &cobra.Command{
+	Use:     "show",
+	Aliases: []string{"s"},
+	Short:   "Print today's stand-up",
+	Run: func(cmd *cobra.Command, args []string) {
+		s := NewStandup(RootCmd)
+
+		b, err := s.readStandupFile(s.createPath(time.Now()))
+		if err != nil {
+			s.Must(err)
+		}
+
+		fmt.Printf("%s", b)
+	},
+}
+
 func init() {
 	RootCmd.PersistentFlags().StringP(FlagStandUpDir, "f", "/home/josh/Jetstack/standups", "Set directory of standups")
 	RootCmd.PersistentFlags().StringP(FlagToken, "t", "", "Set you client slack token")
@@ -143,6 +159,7 @@ func init() {
 	RootCmd.PersistentFlags().StringP(FlagName, "n", "joshua.vanleeuwen", "Set name of slack client")
 	RootCmd.AddCommand(todayCmd)
 	RootCmd.AddCommand(yesterdayCmd)
+	RootCmd.AddCommand(showCmd)
 }
 
 func (s *StandUp) Must(err error) {
@@ -252,19 +269,12 @@ func (s *StandUp) vimStandup(nowPath, yestPath string) error {
 		return err
 	}
 
-	var b []byte
-	if _, err := os.Stat(nowPath); err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-	} else {
-		b, err = ioutil.ReadFile(nowPath)
-		if err != nil {
-			return fmt.Errorf("failed to read todays stand-up: %v", err)
-		}
+	b, err := s.readStandupFile(nowPath)
+	if err != nil {
+		return err
 	}
 
-	err = ioutil.WriteFile(nowPath, []byte(fmt.Sprintf("%s\n\n%s", c, string(b))), os.FileMode(0644))
+	err = ioutil.WriteFile(nowPath, []byte(fmt.Sprintf("%s\n\n%s", c, b)), os.FileMode(0644))
 	if err != nil {
 		return err
 	}
@@ -276,7 +286,7 @@ func (s *StandUp) vimStandup(nowPath, yestPath string) error {
 		return fmt.Errorf("failed to create new standup: %v", err)
 	}
 
-	b, err = ioutil.ReadFile(nowPath)
+	b, err = s.readStandupFile(nowPath)
 	if err != nil {
 		return err
 	}
@@ -285,7 +295,7 @@ func (s *StandUp) vimStandup(nowPath, yestPath string) error {
 	if err != nil {
 		return err
 	}
-	c = regex.ReplaceAllString(string(b), "\n")
+	c = regex.ReplaceAllString(b, "\n")
 
 	var out string
 	first := true
@@ -302,6 +312,22 @@ func (s *StandUp) vimStandup(nowPath, yestPath string) error {
 	}
 
 	return ioutil.WriteFile(nowPath, []byte(out), os.FileMode(0644))
+}
+
+func (s *StandUp) readStandupFile(path string) (string, error) {
+	var b []byte
+	if _, err := os.Stat(path); err != nil {
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+	} else {
+		b, err = ioutil.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("failed to read stand-up file: %v", err)
+		}
+	}
+
+	return string(b), nil
 }
 
 func (s *StandUp) loadComment(path string) (string, error) {
