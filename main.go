@@ -143,7 +143,7 @@ var showCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		s := NewStandup(RootCmd)
 
-		b, err := s.readStandupFile(s.createPath(time.Now()))
+		b, err := s.CreateStandUp()
 		if err != nil {
 			s.Must(err)
 		}
@@ -241,7 +241,7 @@ func (s *StandUp) prevPrevDay() time.Time {
 }
 
 func (s *StandUp) generateStandUp(s1, s2 []byte, today, prevDay string) string {
-	return fmt.Sprintf("```\n%s:\n%s\n%s:\n%s```", prevDay, s1, today, s2)
+	return fmt.Sprintf("```\n%s:\n%s\n\n%s:\n%s\n```", prevDay, s1, today, s2)
 }
 
 func (s *StandUp) createPath(t time.Time) string {
