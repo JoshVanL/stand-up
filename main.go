@@ -336,10 +336,10 @@ func (s *StandUp) loadComment(path string) (string, error) {
 		return "", fmt.Errorf("failed to get previous stand-up: %v", err)
 	}
 
-	n := strings.Count(string(b), "\n") - 1
-	if n < 0 {
-		n = 0
+	var out string
+	for _, str := range strings.Split(string(b), "\n") {
+		out = fmt.Sprintf("%s# %s\n", out, str)
 	}
 
-	return fmt.Sprintf("# %s", strings.Replace(string(b), "\n", "\n# ", n)), nil
+	return out, nil
 }
