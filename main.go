@@ -43,7 +43,7 @@ var RootCmd = &cobra.Command{
 
 		token, err := cmd.PersistentFlags().GetString(FlagToken)
 		if err != nil {
-			Errorf("failed to get slack token flag: %v", err)
+			Errorf("failed to retrieve slack token flag: %v", err)
 		}
 		if token == "" {
 			Error("Slack token not set, exiting.\n")
