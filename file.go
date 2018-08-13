@@ -69,12 +69,12 @@ func (s *StandUp) CreateStandUp() (string, error) {
 	todayPath := s.createPath(now)
 	prevPath := s.createPath(prevDay)
 
-	s1, err := ioutil.ReadFile(prevPath)
+	s1, err := s.provider.readStandupFile(prevPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read last stand-up: %v", err)
 	}
 
-	s2, err := ioutil.ReadFile(todayPath)
+	s2, err := s.provider.readStandupFile(todayPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read today's stand-up: %v", err)
 	}
@@ -110,7 +110,7 @@ func (s *StandUp) createPath(t time.Time) string {
 	return path
 }
 
-func (s *StandUp) generateStandUp(s1, s2 []byte, today, prevDay string) string {
+func (s *StandUp) generateStandUp(s1, s2, today, prevDay string) string {
 	return fmt.Sprintf("```\n%s:\n%s\n\n%s:\n%s\n```", prevDay, s1, today, s2)
 }
 

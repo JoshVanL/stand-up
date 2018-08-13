@@ -24,11 +24,19 @@ type SSH struct {
 	tempFile string
 }
 
-func (s *SSH) vimStandup(nowPath, yestPath string) error {
-	if err := s.readPubKey(); err != nil {
-		return err
+func NewSSH(standup *StandUp) (*SSH, error) {
+	s := &SSH{
+		standup: standup,
 	}
 
+	if err := s.readPubKey(); err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+func (s *SSH) vimStandup(nowPath, yestPath string) error {
 	c, err := s.loadComment(yestPath)
 	if err != nil {
 		return err
@@ -45,7 +53,7 @@ func (s *SSH) vimStandup(nowPath, yestPath string) error {
 		return err
 	}
 
-	cmd := exec.Command("vim", path, "-c", ":setlocal spell")
+	cmd := exec.Command("vim", path, "-c", ":setlocal spell | silent %s/\r//g")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -106,7 +114,9 @@ func (s *SSH) loadComment(path string) (string, error) {
 
 	var out string
 	for _, str := range strings.Split(c, "\n") {
-		out = fmt.Sprintf("%s# %s\n", out, str)
+		if len(str) > 0 && str[0] != '\n' {
+			out = fmt.Sprintf("%s# %s\n", out, str)
+		}
 	}
 
 	return out, nil

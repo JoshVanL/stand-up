@@ -94,9 +94,12 @@ func NewStandup(cmd *cobra.Command) *StandUp {
 
 	s.config = config
 	if config.SshUser != "" && config.SshHost != "" {
-		s.provider = &SSH{
-			standup: s,
+		ssh, err := NewSSH(s)
+		if err != nil {
+			Error(err.Error())
 		}
+
+		s.provider = ssh
 	} else {
 		s.provider = &Local{
 			standup: s,
