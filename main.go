@@ -2,36 +2,42 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
 	"time"
 
-	"github.com/mitchellh/go-homedir"
 	"github.com/nlopes/slack"
 	"github.com/spf13/cobra"
 )
 
 const (
-	FlagStandUpDir = "stand-ups"
-	FlagToken      = "token"
-	FlagChannel    = "channel"
-	FlagName       = "name"
+	FlagConfig = "config"
 )
 
 type StandUp struct {
-	client *slack.Client
-	rtm    *slack.RTM
-	id     string
+	client   *slack.Client
+	rtm      *slack.RTM
+	id       string
+	config   *Config
+	provider Provider
+}
 
-	channel string
-	name    string
-	token   string
-	dir     string
+type Provider interface {
+	vimStandup(nowPath, yestPath string) error
+	loadComment(path string) (string, error)
+	readStandupFile(path string) (string, error)
+}
+
+func main() {
+	if err := RootCmd.Execute(); err != nil {
+		Errorf("%s\n", err)
+	}
+}
+
+func init() {
+	RootCmd.PersistentFlags().StringP(FlagConfig, "c", "~/.config/stand-up.yaml", "Set stand-up config path")
+	RootCmd.AddCommand(todayCmd)
+	RootCmd.AddCommand(yesterdayCmd)
+	RootCmd.AddCommand(showCmd)
 }
 
 var RootCmd = &cobra.Command{
@@ -41,28 +47,7 @@ var RootCmd = &cobra.Command{
 
 		s := NewStandup(cmd)
 
-		token, err := cmd.PersistentFlags().GetString(FlagToken)
-		if err != nil {
-			Errorf("failed to retrieve slack token flag: %v", err)
-		}
-		if token == "" {
-			Error("Slack token not set, exiting.\n")
-		}
-
-		s.token = token
-		s.client = slack.New(token)
-
-		name, err := cmd.PersistentFlags().GetString(FlagName)
-		if err != nil {
-			Errorf("failed to get client name flag: %v", err)
-		}
-		s.name = name
-
-		channel, err := cmd.PersistentFlags().GetString(FlagChannel)
-		if err != nil {
-			Errorf("failed to get stand-up channel flag: %v", err)
-		}
-		s.channel = channel
+		s.client = slack.New(s.config.Token)
 
 		standup, err := s.CreateStandUp()
 		s.Must(err)
@@ -71,16 +56,16 @@ var RootCmd = &cobra.Command{
 		rtm.GetChannels(true)
 		users, err := rtm.GetUsers()
 		if err != nil {
-			Errorf("failed to get users: %v", err)
+			Errorf("failed to get users: %v\n", err)
 		}
 		for _, u := range users {
-			if u.Name == s.name {
+			if u.Name == s.config.ClientName {
 				s.id = u.ID
 				break
 			}
 		}
 		if s.id == "" {
-			s.Must(fmt.Errorf("failed to find user: %s", s.name))
+			s.Must(fmt.Errorf("failed to find user: %s", s.config.ClientName))
 		}
 		s.rtm = rtm
 
@@ -97,23 +82,28 @@ func NewStandup(cmd *cobra.Command) *StandUp {
 
 	s := new(StandUp)
 
-	path, err := cmd.PersistentFlags().GetString(FlagStandUpDir)
+	configPath, err := cmd.PersistentFlags().GetString(FlagConfig)
 	if err != nil {
-		s.Must(fmt.Errorf("failed to get stand-up directory flag: %v", err))
+		Errorf("failed to parse config flag: %v", err)
 	}
-	path, err = homedir.Expand(path)
+
+	config, err := NewConfig(configPath)
 	if err != nil {
-		s.Must(fmt.Errorf("failed to expand stand-up directory: %v", err))
+		Errorf("failed to parse config file: %v", err)
 	}
-	s.dir = path
+
+	s.config = config
+	if config.SshUser != "" && config.SshHost != "" {
+		s.provider = &SSH{
+			standup: s,
+		}
+	} else {
+		s.provider = &Local{
+			standup: s,
+		}
+	}
 
 	return s
-}
-
-func main() {
-	if err := RootCmd.Execute(); err != nil {
-		Errorf("%v\n", err)
-	}
 }
 
 var todayCmd = &cobra.Command{
@@ -122,7 +112,7 @@ var todayCmd = &cobra.Command{
 	Short:   "Open vim for today's stand-up",
 	Run: func(cmd *cobra.Command, args []string) {
 		s := NewStandup(RootCmd)
-		s.Must(s.vimStandup(s.createPath(time.Now()), s.createPath(s.prevDay())))
+		s.Must(s.provider.vimStandup(s.createPath(time.Now()), s.createPath(s.prevDay())))
 	},
 }
 
@@ -132,7 +122,7 @@ var yesterdayCmd = &cobra.Command{
 	Short:   "Open vim for yesterday's stand-up",
 	Run: func(cmd *cobra.Command, args []string) {
 		s := NewStandup(RootCmd)
-		s.Must(s.vimStandup(s.createPath(s.prevDay()), s.createPath(s.prevPrevDay())))
+		s.Must(s.provider.vimStandup(s.createPath(s.prevDay()), s.createPath(s.prevPrevDay())))
 	},
 }
 
@@ -152,14 +142,26 @@ var showCmd = &cobra.Command{
 	},
 }
 
-func init() {
-	RootCmd.PersistentFlags().StringP(FlagStandUpDir, "f", "/home/josh/Jetstack/standups", "Set directory of standups")
-	RootCmd.PersistentFlags().StringP(FlagToken, "t", "", "Set you client slack token")
-	RootCmd.PersistentFlags().StringP(FlagChannel, "c", "stand-ups", "Set channel to post stand-up")
-	RootCmd.PersistentFlags().StringP(FlagName, "n", "joshua.vanleeuwen", "Set name of slack client")
-	RootCmd.AddCommand(todayCmd)
-	RootCmd.AddCommand(yesterdayCmd)
-	RootCmd.AddCommand(showCmd)
+func (s *StandUp) SendStandUpMessage(standup string) error {
+	params := slack.NewPostMessageParameters()
+	params.AsUser = true
+	respChanel, respTimestamp, err := s.client.PostMessage(s.config.Channel, standup, params)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s\n%s\n", respChanel, respTimestamp)
+	return nil
+}
+
+func Error(err string) {
+	fmt.Fprint(os.Stderr, err)
+	os.Exit(1)
+}
+
+func Errorf(err string, a ...interface{}) {
+	fmt.Fprintf(os.Stderr, err, a)
+	os.Exit(1)
 }
 
 func (s *StandUp) Must(err error) {
@@ -176,170 +178,4 @@ func (s *StandUp) Must(err error) {
 
 		Errorf("%v\n", err)
 	}
-}
-
-func Error(err string) {
-	fmt.Fprint(os.Stderr, err)
-	os.Exit(1)
-}
-
-func Errorf(err string, a ...interface{}) {
-	fmt.Fprintf(os.Stderr, err, a)
-	os.Exit(1)
-}
-
-func (s *StandUp) SendStandUpMessage(standup string) error {
-	params := slack.NewPostMessageParameters()
-	params.AsUser = true
-	respChanel, respTimestamp, err := s.client.PostMessage(s.channel, standup, params)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("%s\n%s\n", respChanel, respTimestamp)
-	return nil
-}
-
-func (s *StandUp) CreateStandUp() (string, error) {
-	now := time.Now()
-	prevDay := s.prevDay()
-
-	todayPath := s.createPath(now)
-	prevPath := s.createPath(prevDay)
-
-	s1, err := ioutil.ReadFile(prevPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read last stand-up: %v", err)
-	}
-
-	s2, err := ioutil.ReadFile(todayPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read today's stand-up: %v", err)
-	}
-
-	standup := s.generateStandUp(s1, s2, now.Weekday().String(), prevDay.Weekday().String())
-
-	return standup, nil
-}
-
-func (s *StandUp) prevDay() time.Time {
-	prevDay := time.Now().Add(-time.Hour * 24)
-	for prevDay.Weekday() == time.Saturday || prevDay.Weekday() == time.Sunday {
-		prevDay = prevDay.Add(-time.Hour * 24)
-	}
-
-	return prevDay
-}
-
-func (s *StandUp) prevPrevDay() time.Time {
-	prevPrevDay := time.Now().Add(-time.Hour * 48)
-	for prevPrevDay.Weekday() == time.Saturday || prevPrevDay.Weekday() == time.Sunday {
-		prevPrevDay = prevPrevDay.Add(-time.Hour * 24)
-	}
-
-	return prevPrevDay
-}
-
-func (s *StandUp) generateStandUp(s1, s2 []byte, today, prevDay string) string {
-	return fmt.Sprintf("```\n%s:\n%s\n\n%s:\n%s\n```", prevDay, s1, today, s2)
-}
-
-func (s *StandUp) createPath(t time.Time) string {
-	day := strconv.Itoa(t.Day())
-	if len(day) < 2 {
-		day = fmt.Sprintf("0%s", day)
-	}
-
-	month := strconv.Itoa(int(t.Month()))
-	if len(month) < 2 {
-		month = fmt.Sprintf("0%s", month)
-	}
-
-	path := fmt.Sprintf("%s_%s_%d", day, month, (t.Year() % 100))
-	path = filepath.Join(s.dir, path)
-
-	return path
-}
-
-func (s *StandUp) vimStandup(nowPath, yestPath string) error {
-	cmd := exec.Command("vim", nowPath, "-c", ":setlocal spell")
-
-	c, err := s.loadComment(yestPath)
-	if err != nil {
-		return err
-	}
-
-	b, err := s.readStandupFile(nowPath)
-	if err != nil {
-		return err
-	}
-
-	err = ioutil.WriteFile(nowPath, []byte(fmt.Sprintf("%s\n%s", c, b)), os.FileMode(0644))
-	if err != nil {
-		return err
-	}
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create new standup: %v", err)
-	}
-
-	b, err = s.readStandupFile(nowPath)
-	if err != nil {
-		return err
-	}
-
-	regex, err := regexp.Compile("\n\n")
-	if err != nil {
-		return err
-	}
-	c = regex.ReplaceAllString(b, "\n")
-
-	var out string
-	first := true
-	for _, str := range strings.Split(c, "\n") {
-		if !strings.HasPrefix(str, "#") && len(str) > 0 && str[0] != '\n' {
-			if first {
-				out = str
-				first = false
-				continue
-			}
-
-			out = fmt.Sprintf("%s\n%s", out, str)
-		}
-	}
-
-	return ioutil.WriteFile(nowPath, []byte(out), os.FileMode(0644))
-}
-
-func (s *StandUp) readStandupFile(path string) (string, error) {
-	var b []byte
-	if _, err := os.Stat(path); err != nil {
-		if !os.IsNotExist(err) {
-			return "", err
-		}
-	} else {
-		b, err = ioutil.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("failed to read stand-up file: %v", err)
-		}
-	}
-
-	return string(b), nil
-}
-
-func (s *StandUp) loadComment(path string) (string, error) {
-	b, err := ioutil.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("failed to get previous stand-up: %v", err)
-	}
-
-	var out string
-	for _, str := range strings.Split(string(b), "\n") {
-		out = fmt.Sprintf("%s# %s\n", out, str)
-	}
-
-	return out, nil
 }
