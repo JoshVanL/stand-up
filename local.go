@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/mitchellh/go-homedir"
 )
 
 type Local struct {
@@ -67,6 +69,11 @@ func (l *Local) vimStandup(nowPath, yestPath string) error {
 }
 
 func (l *Local) readStandupFile(path string) (string, error) {
+	path, err := homedir.Expand(path)
+	if err != nil {
+		return "", err
+	}
+
 	var b []byte
 	if _, err := os.Stat(path); err != nil {
 		if !os.IsNotExist(err) {
