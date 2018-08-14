@@ -132,10 +132,14 @@ func (s *SSH) readStandupFile(path string) (string, error) {
 
 	s.session.Stdout = writer
 
+	var c string
 	if err := s.session.Run(fmt.Sprintf("cat %s", path)); err != nil {
-		return "", fmt.Errorf("failed to cat file from ssh: %v", err)
+		if err.Error() != "Process exited with status 1" {
+			return "", fmt.Errorf("failed to cat file from ssh: %v", err)
+		}
+	} else {
+		c = buff.String()
 	}
-	c := buff.String()
 
 	s.session.Close()
 
