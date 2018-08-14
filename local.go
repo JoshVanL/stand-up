@@ -16,6 +16,16 @@ type Local struct {
 }
 
 func (l *Local) vimStandup(nowPath, yestPath string) error {
+	nowPath, err := homedir.Expand(nowPath)
+	if err != nil {
+		return err
+	}
+
+	yestPath, err = homedir.Expand(yestPath)
+	if err != nil {
+		return err
+	}
+
 	cmd := exec.Command("vim", nowPath, "-c", ":setlocal spell")
 
 	c, err := l.loadComment(yestPath)
@@ -77,7 +87,7 @@ func (l *Local) readStandupFile(path string) (string, error) {
 	var b []byte
 	if _, err := os.Stat(path); err != nil {
 		if !os.IsNotExist(err) {
-			return "", err
+			return "", fmt.Errorf("failed to check status of file: %v", err)
 		}
 	} else {
 		b, err = ioutil.ReadFile(path)
