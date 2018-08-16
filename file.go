@@ -111,7 +111,7 @@ func (s *StandUp) createPath(t time.Time) string {
 }
 
 func (s *StandUp) generateStandUp(s1, s2, today, prevDay string) string {
-	return fmt.Sprintf("```\n%s:\n%s\n\n%s:\n%s\n```", prevDay, s1, today, s2)
+	return fmt.Sprintf("```\n%s:\n%s\n\n%s:\n%s```", prevDay, s1, today, s2)
 }
 
 func (s *StandUp) prevPrevDay() time.Time {

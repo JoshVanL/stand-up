@@ -3,7 +3,7 @@
 BIN=$(pwd)/stand-up
 TOKEN=$1
 
-EXEC="$BIN -t $TOKEN"
+EXEC="$BIN"
 
 SERVICE="[Unit]
 Description=Stand-up automation service.
