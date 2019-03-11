@@ -1,6 +1,6 @@
 # Stand-up automaton
 
-Hate London beer prices? Never miss a start-up again!
+Hate London beer prices? Never miss a stand-up again!
 
 Usage:
 
